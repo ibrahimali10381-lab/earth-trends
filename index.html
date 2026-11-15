@@ -1,3 +1,6 @@
+
+
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -109,6 +112,7 @@
       padding-top: 12px;
       border-top: 1px solid var(--line);
       min-height: 4.4em;
+      
     }
 
     .reading strong {
@@ -243,11 +247,12 @@
     <header>
       <p class="name">earth-trends</p>
       <p class="date" id="date-line">Loading</p>
-      <p class="meta">MODIS Terra, 8-day NDVI</p>
+      <p class="meta" id="meta">MODIS Terra, 8-day NDVI</p>
     </header>
     <div class="reading" id="reading">
       <strong id="klass">NDVI</strong>
       <span class="coord" id="coord">Move over land to sample a point.</span>
+      <span class="coord" id="pressure-line">Move over land to sample a point.</span>
     </div>
     <section id="key" class="legend" hidden>
       <h2>Key</h2>
@@ -258,14 +263,25 @@
       <div class="swatch"><i style="background:#f15cff"></i> Greener than last month</div>
       <p class="note">Magenta is greener than the month before.</p>
     </section>
+    <section id="pressure-key" class="legend" hidden>
+      <h2>Surface pressure</h2>
+      <div class="swatch"><i style="background:#4087b9"></i> Very low, under 845 hPa</div>
+      <div class="swatch"><i style="background:#abd7a8"></i> Low, 845 to 890</div>
+      <div class="swatch"><i style="background:#ecef9f"></i> Moderate, 890 to 930</div>
+      <div class="swatch"><i style="background:#f9cb84"></i> High, 930 to 975</div>
+      <div class="swatch"><i style="background:#df674e"></i> Very high, over 975</div>
+      <p class="note">Low pressure rises highest when Extrude is on.</p>
+    </section>
   </div>
   <aside id="sidebar" class="sidebar" aria-hidden="true">
     <button id="ndvi-toggle" class="layer" type="button" aria-expanded="false" aria-controls="ndvi-panel">NDVI</button>
+    <button id="surface-pressure-toggle" class="layer" type="button" aria-expanded="false" aria-controls="surface-pressure-panel">Surface Pressure</button>
   </aside>
   <div id="ndvi-panel" class="dock" hidden>
     <div class="transport">
       <button id="play" type="button">Play</button>
       <button id="bloom" type="button" class="bloom-on" aria-pressed="true">Bloom</button>
+      <button id="extrude" type="button" aria-pressed="true">Extrude</button>
       <button id="spin" type="button" aria-pressed="true">Spin</button>
     </div>
     <div class="timeline">
@@ -311,6 +327,12 @@
     const key = document.getElementById("key");
     const corner = document.getElementById("corner");
 
+    const surfacePressureToggle = document.getElementById("surface-pressure-toggle");
+    const pressureLine = document.getElementById("pressure-line");
+
+    const pressureKey = document.getElementById("pressure-key");
+    const metaEl = document.getElementById("meta");
+
     menuBtn.addEventListener("click", () => {
       const open = sidebar.classList.toggle("open");
       menuBtn.setAttribute("aria-expanded", String(open));
@@ -319,12 +341,28 @@
     });
 
     let ndviSelected = false;
+    let surfacePressureSelected = false;
 
     ndviToggle.addEventListener("click", () => {
       ndviSelected = !ndviSelected;
       ndviToggle.setAttribute("aria-expanded", String(ndviSelected));
       syncNdviLayer();
     });
+
+    
+    surfacePressureToggle.addEventListener("click", () => {
+      surfacePressureSelected = !surfacePressureSelected;
+      surfacePressureToggle.setAttribute("aria-expanded", String(surfacePressureSelected));
+
+      surfacePressure2.visible = surfacePressureSelected && !!pressureMat.uniforms.uMap.value;
+      updatePanels();
+
+      if (surfacePressureSelected) showPressure();
+      if (!surfacePressureSelected) pressureLine.textContent = "";
+    });
+    
+
+
 
     scrub.max = String(frames.length - 1);
     const startIndex = frames.findIndex((f) => f.year === 2026 && f.month === 7);
@@ -389,15 +427,95 @@
       });
     }
 
+    function makeSurfacePressureMaterial() {
+      return new THREE.MeshLambertMaterial({
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+      });
+    }
+
+    const pressureMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uMap:     { value: null },
+        uScale:   { value: 0.0 },     
+        uOpacity: { value: 0.7 },
+      },
+      vertexShader: `
+        uniform sampler2D uMap;
+        uniform float uScale;
+        varying vec4 vColor;
+        varying vec3 vPos;
+
+        float pressureFromColor(vec3 lin) { // get rgb. convert to a pressure value 
+          vec3 c = pow(lin, vec3(1.0 / 2.2)) * 255.0;
+          float p;
+          if (c.b > c.r || c.g >= c.r) {
+            p = 800.0 + (c.r - 64.0) * 100.0 / 172.0;
+          } else {
+            p = 920.0 + (227.0 - c.g) * 100.0 / 150.0;
+          }
+          return clamp(p, 800.0, 1020.0);
+        }
+
+        void main() { //for every vertex...
+          vColor = texture2D(uMap, uv);
+          float h = 0.0;
+          if (vColor.a > 0.15) h = (1020.0 - pressureFromColor(vColor.rgb)) / 220.0; //turn pressure into height 
+          vec3 pos = position + normal * h * uScale; //extrude along normal 
+          vec4 mv = modelViewMatrix * vec4(pos, 1.0);
+          vPos = mv.xyz;
+          gl_Position = projectionMatrix * mv;
+        }`,
+      fragmentShader: `
+        uniform float uOpacity;
+        varying vec4 vColor;
+        varying vec3 vPos;
+        void main() {
+          vec3 n = normalize(cross(dFdx(vPos), dFdy(vPos)));
+          if (dot(n, vPos) > 0.0) n = -n;
+          float light = 0.55 + 0.45 * max(dot(n, normalize(vec3(0.4, 0.5, 0.8))), 0.0);
+          gl_FragColor = vec4(vColor.rgb * light, vColor.a * uOpacity);
+          #include <colorspace_fragment>
+        }`,
+      transparent: true,
+      depthWrite: false,
+    });
+
+
+
     const ndviA = new THREE.Mesh(new THREE.SphereGeometry(1.004, 96, 96), makeNdviMaterial());
     const ndviB = new THREE.Mesh(new THREE.SphereGeometry(1.008, 96, 96), makeNdviMaterial());
+    //const surfacePressure = new THREE.Mesh(new THREE.SphereGeometry(1.004, 96, 96), makeSurfacePressureMaterial());
+
+    const surfacePressure2 = new THREE.Mesh(
+      new THREE.SphereGeometry(1.002, 256, 128),   
+      pressureMat
+    );
+
+    
+    //surfacePressure.visible = false;
+    //surfacePressure.renderOrder = 2;
+   
     ndviA.renderOrder = 2;
     ndviB.renderOrder = 2;
+
     ndviA.visible = false;
     ndviB.visible = false;
-    globe.add(ndviA, ndviB);
+   
 
-    const bloomMat = new THREE.ShaderMaterial({
+    surfacePressure2.renderOrder = 1;
+    surfacePressure2.visible = false;     
+
+    globe.add(ndviA, ndviB, surfacePressure2);
+    //globe.add(ndviA, ndviB, surfacePressure);
+
+
+  
+
+
+    /* bloom, magenta stuff. calc*/
+    const bloomMat = new THREE.ShaderMaterial({ 
       uniforms: {
         mapNow: { value: null },
         mapPrev: { value: null },
@@ -433,6 +551,7 @@
     bloom.visible = false;
     globe.add(bloom);
 
+
     function directionFromLatLon(lat, lon) {
       const phi = ((lon + 180) / 360) * Math.PI * 2;
       const theta = ((90 - lat) / 180) * Math.PI;
@@ -456,13 +575,15 @@
     const loader = new THREE.TextureLoader();
     loader.setCrossOrigin("anonymous");
 
+
+
     function loadTexture(url) {
       return new Promise((resolve, reject) => {
         loader.load(url, (texture) => {
           texture.colorSpace = THREE.SRGBColorSpace;
           texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
           resolve(texture);
-        }, undefined, reject);
+        }, undefined, () => reject(new Error("Image failed to load: " + url)));
       });
     }
 
@@ -486,6 +607,28 @@
       });
       return `https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?${params.toString()}`;
     }
+
+
+    function surfacePressureUrl(frame) {
+      const mm = String(frame.month).padStart(2, "0");
+      const dd = String(frame.day).padStart(2, "0");
+      const params = new URLSearchParams({
+        SERVICE: "WMS",
+        VERSION: "1.1.1",
+        REQUEST: "GetMap",
+        LAYERS: "MERRA2_Surface_Pressure_Monthly",
+        FORMAT: "image/png",
+        TRANSPARENT: "TRUE",
+        SRS: "EPSG:4326",
+        BBOX: "-180,-90,180,90",
+        WIDTH: "576",
+        HEIGHT: "361",
+        TIME: `${frame.year}-${mm}-${dd}`,
+      });
+      return `https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?${params.toString()}`;
+    }
+
+
 
     function frameKey(frame) {
       return `${frame.year}-${frame.month}-${frame.day}`;
@@ -526,17 +669,28 @@
       };
     }
 
-    const pending = new Map();
+     const pending = new Map();
     function loadFrame(frame) {
-      const key = frameKey(frame);
+      
+      const key = `ndvi:${frameKey(frame)}`;
+      //const key = frameKey(frame);
+      
       if (cache.has(key)) {
         const hit = cache.get(key);
         cache.delete(key);
         cache.set(key, hit);
         return Promise.resolve(hit);
       }
+
+    
+      const url = ndviUrl(frame);
+
+      
+
+      console.log("requesting", key, url);
+
       if (pending.has(key)) return pending.get(key);
-      const job = loadTexture(ndviUrl(frame))
+      const job = loadTexture(url)
         .then((texture) => {
           const entry = { texture, sampler: makeSampler(texture.image), frame };
           remember(key, entry);
@@ -551,6 +705,39 @@
       return job;
     }
 
+    const pressureCache = new Map();
+    function loadPressure(frame) {
+      const f = { ...frame, day: 1 };                 
+      const k = frameKey(f);
+      if (!pressureCache.has(k)) {
+        pressureCache.set(k, loadTexture(surfacePressureUrl(f)).catch((e) => {
+          pressureCache.delete(k);                     
+          throw e;
+        }));
+      }
+      return pressureCache.get(k);
+    }
+
+    let pressureRequest = 0;
+    let currentPressureTex = null;
+    async function showPressure() {
+      if (!surfacePressureSelected) return;
+      const my = ++pressureRequest;
+      try {
+        const tex = await loadPressure(frames[index]);
+        if (my !== pressureRequest || !surfacePressureSelected) return;  //toggled
+        pressureMat.uniforms.uMap.value = tex; //make bumpy
+        surfacePressure2.visible = true;
+        if (!tex.userData.sampler) tex.userData.sampler = makeSampler(tex.image);
+          currentPressureTex = tex;    
+        
+      } catch (e) {
+        console.error("pressure failed to load", e);
+      }
+    }
+
+
+
     let shown = ndviA;
     let hidden = ndviB;
     let index = startIndex;
@@ -563,18 +750,50 @@
     let fade = null;
 
     function syncNdviLayer() {
-      corner.hidden = !ndviSelected;
-      key.hidden = !ndviSelected;
-      ndviPanel.hidden = !ndviSelected;
+
+      bloomBtn.hidden = !ndviSelected;
+      extrudeBtn.hidden = !surfacePressureSelected;
+
+      updatePanels();
       ndviA.visible = ndviSelected;
       ndviB.visible = ndviSelected;
+      
       if (!ndviSelected) {
         bloom.visible = false;
+        klassEl.textContent = "Surface Pressure";      
+        coordEl.textContent = "";
         setStatus("");
       } else {
+        klassEl.textContent = "NDVI";
+        coordEl.textContent = "Move over land to sample a point.";
         applyBloom();
       }
     }
+
+    function updatePanels() {
+      const any = ndviSelected || surfacePressureSelected;
+      corner.hidden = !any;
+      ndviPanel.hidden = !any;
+      key.hidden = !ndviSelected;
+      pressureKey.hidden = !surfacePressureSelected;
+      extrudeBtn.hidden = !surfacePressureSelected;
+
+      const parts = [];
+      if (ndviSelected) parts.push("MODIS Terra, 8-day NDVI");
+      if (surfacePressureSelected) parts.push("MERRA-2 monthly surface pressure");
+      metaEl.textContent = parts.join(" · ");
+    }
+
+    function coordText(uv) {
+      const lat = uv.y * 180 - 90;
+      const lon = uv.x * 360 - 180;
+      const ns = lat >= 0 ? "N" : "S";
+      const ew = lon >= 0 ? "E" : "W";
+      return `${Math.abs(lat).toFixed(1)}°${ns}   ${Math.abs(lon).toFixed(1)}°${ew}`;
+    }
+
+
+
 
     function setStatus(text) {
       if (!ndviSelected || !text) {
@@ -595,6 +814,8 @@
       bloomMat.uniforms.mapPrev.value = previousEntry.texture;
       bloomMat.uniforms.strength.value = 1;
     }
+
+    
 
     function renderDate() {
       const frame = frames[index];
@@ -617,6 +838,7 @@
         if (my !== requestId) return;
         liveKeys = new Set([frameKey(frame), frameKey(prevFrame)]);
         currentEntry = now;
+        
         previousEntry = prev;
         hidden.material.map = now.texture;
         hidden.material.needsUpdate = true;
@@ -653,7 +875,10 @@
       }
     }
 
-    function classify(pixel, prevPixel) {
+    
+    /*ndvi classify green*/
+    function classify(pixel, prevPixel) { 
+
       const [r, g, b, a] = pixel;
       if (a < 40) {
         return { name: "Open water", note: "No NDVI for this point." };
@@ -679,6 +904,47 @@
       return { name, note };
     }
 
+
+
+    function classifyPressure(pixel, prevPixel) { 
+
+      //take in pixel color, classify to pressure buckets based on rgb values. spits out range as name and note (bucket name))
+
+      const [r, g, b, a] = pixel;
+      let name = "high pressure";
+      let note = "ahaaaa";
+
+      //5 buckets: super blue, green, yellow, orange, red. real names: very low, low, moderate, high, very high 
+
+      if (b > r) { //very blue, probably lower pressure 
+        name = " <845 hPa";
+        note = "Very Low Pressure";
+      } else if (r < g) {
+        if (r < 218) {
+          name = "~845 to 890 hPa";
+          note = "Low Pressure";
+        } else {
+          name = "~890 to 930 hPa"; 
+          note = "Moderate Pressure";
+        }
+      } else {
+        if (g > 213) {
+          name = "~890 to 930 hPa";
+          note = "Moderate Pressure";
+        } else if (141 < g && g <= 213) {
+          name = "~930 to 975 hPa";
+          note = "High Pressure";
+        } else if (g <= 141) {
+          name = " >975 hPa";
+          note = "Very High Pressure";
+        }
+      }
+
+      return { name, note };
+    }
+
+
+
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
     let pointerInside = false;
@@ -689,17 +955,24 @@
       pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
       pointerInside = true;
       raycaster.setFromCamera(pointer, camera);
-      const hit = raycaster.intersectObject(shown, false)[0];
-      if (!hit || !hit.uv || !currentEntry) return;
-      const sample = currentEntry.sampler(hit.uv.x, hit.uv.y);
-      const prevSample = previousEntry ? previousEntry.sampler(hit.uv.x, hit.uv.y) : null;
-      const lat = hit.uv.y * 180 - 90;
-      const lon = hit.uv.x * 360 - 180;
-      const reading = classify(sample, prevSample);
-      const ns = lat >= 0 ? "N" : "S";
-      const ew = lon >= 0 ? "E" : "W";
-      klassEl.textContent = reading.name;
-      coordEl.textContent = `${Math.abs(lat).toFixed(1)}°${ns}   ${Math.abs(lon).toFixed(1)}°${ew}   ${reading.note}`;
+       if (ndviSelected && currentEntry) {
+          const hit = raycaster.intersectObject(shown, false)[0];
+          if (hit && hit.uv) {
+            const sample = currentEntry.sampler(hit.uv.x, hit.uv.y);
+            const prevSample = previousEntry ? previousEntry.sampler(hit.uv.x, hit.uv.y) : null;
+            const reading = classify(sample, prevSample);        // classify again, not classifyPressure
+            klassEl.textContent = reading.name;
+            coordEl.textContent = `${coordText(hit.uv)}   ${reading.note}`;
+          }
+        }
+
+        if (surfacePressureSelected && currentPressureTex) {
+          const hit = raycaster.intersectObject(earth, false)[0];   // flat sphere
+          if (hit && hit.uv) {
+            const px = currentPressureTex.userData.sampler(hit.uv.x, hit.uv.y);
+            const reading = px[3] < 40 ? { name: "No data", note: "" } : classifyPressure(px);
+            pressureLine.textContent = `${coordText(hit.uv)}   ${reading.name}  ${reading.note}`;          }
+        }
     }
 
     renderer.domElement.addEventListener("pointermove", readPointer);
@@ -719,6 +992,20 @@
       bloomBtn.setAttribute("aria-pressed", String(bloomOn));
       applyBloom();
     });
+
+    const extrudeBtn = document.getElementById("extrude");
+    let extrudeOn = true;
+
+    function applyExtrude() {
+      pressureMat.uniforms.uScale.value = extrudeOn ? 0.05 : 0;
+    }
+
+    extrudeBtn.addEventListener("click", () => {
+      extrudeOn = !extrudeOn;
+      extrudeBtn.setAttribute("aria-pressed", String(extrudeOn));
+      applyExtrude();
+    });
+    applyExtrude();
 
     spinBtn.addEventListener("click", () => {
       spinOn = !spinOn;
@@ -801,3 +1088,4 @@
   </script>
 </body>
 </html>
+
