@@ -1,6 +1,3 @@
-
-
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -20,6 +17,7 @@
     }
 
     * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
 
     html, body {
       margin: 0;
@@ -47,7 +45,6 @@
     }
 
     body.sidebar-open .corner { top: 124px; left: 16px; right: auto; }
-    .corner[hidden] { display: none; }
 
     .menu {
       position: fixed;
@@ -112,7 +109,6 @@
       padding-top: 12px;
       border-top: 1px solid var(--line);
       min-height: 4.4em;
-      
     }
 
     .reading strong {
@@ -124,7 +120,6 @@
     .coord { font-variant-numeric: tabular-nums; }
 
     .legend { margin-top: 18px; }
-    .legend[hidden] { display: none; }
     .legend h2 { margin-bottom: 10px; font-weight: 600; }
 
     .swatch {
@@ -138,6 +133,8 @@
     .swatch i { width: 10px; height: 10px; display: block; flex: none; }
 
     .note { margin-top: 12px; }
+    .co2-bar { height: 10px; margin: 4px 0 6px; background: linear-gradient(90deg,#cde2e5 0%,#c6dbda 6.8%,#bed4cc 13.6%,#b9cdc0 20%,#baccb4 26.8%,#d1d6ad 33.6%,#eae1a6 40%,#efdd96 46.8%,#efcf7b 53.6%,#ecbc65 60%,#eba757 66.8%,#ec8e4b 73.6%,#e97540 80%,#dd5833 86.8%,#c73724 93.6%,#b7221c 100%); }
+    .co2-ticks { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
     .dock {
       position: fixed;
@@ -152,7 +149,7 @@
       background: var(--sheet);
     }
 
-    .dock[hidden] { display: none; }
+    .dock.stacked { bottom: 74px; }
     .dock .timeline { flex: 1; min-width: 0; }
 
     .transport { display: flex; flex-wrap: wrap; gap: 8px 16px; }
@@ -223,6 +220,10 @@
 
     .status.show { display: block; }
 
+    .flat { position: fixed; inset: 0; z-index: 4; background: var(--space); padding-top: 60px; overflow: auto; }
+    .flat iframe { display: block; width: 100%; height: calc(100% - 60px); min-height: 700px; border: 0; background: #fff; }
+    body.flat-open .corner, body.flat-open .dock, body.flat-open .status { display: none !important; }
+
     @media (max-width: 800px) {
       .corner, body.sidebar-open .corner { top: 124px; left: 12px; right: 12px; width: auto; }
       .menu { top: 12px; left: 12px; right: auto; }
@@ -253,6 +254,7 @@
       <strong id="klass">NDVI</strong>
       <span class="coord" id="coord">Move over land to sample a point.</span>
       <span class="coord" id="pressure-line">Move over land to sample a point.</span>
+      <span class="coord" id="co2-line"></span>
     </div>
     <section id="key" class="legend" hidden>
       <h2>Key</h2>
@@ -272,10 +274,20 @@
       <div class="swatch"><i style="background:#df674e"></i> Very high, over 975</div>
       <p class="note">Low pressure rises highest when Extrude is on.</p>
     </section>
+    <section id="co2-key" class="legend" hidden>
+      <h2>CO₂, mid-troposphere</h2>
+      <div class="co2-bar"></div>
+      <div class="co2-ticks"><span>390</span><span>395</span><span>400</span><span>405+ ppm</span></div>
+      <p class="note">Pale = below 390 ppm. NASA AIRS/Aqua, smoothed over about 5° for readability.</p>
+    </section>
   </div>
   <aside id="sidebar" class="sidebar" aria-hidden="true">
     <button id="ndvi-toggle" class="layer" type="button" aria-expanded="false" aria-controls="ndvi-panel">NDVI</button>
-    <button id="surface-pressure-toggle" class="layer" type="button" aria-expanded="false" aria-controls="surface-pressure-panel">Surface Pressure</button>
+    <button id="surface-pressure-toggle" class="layer" type="button" aria-expanded="false" aria-controls="ndvi-panel">Surface Pressure</button>
+    <button id="co2-toggle" class="layer" type="button" aria-expanded="false" aria-controls="co2-panel">CO₂</button>
+    <button id="soil-toggle" class="layer" type="button" aria-expanded="false">Surface Soil Moisture</button>
+    <button id="sea-toggle" class="layer" type="button" aria-expanded="false">Sea Level Changes</button>
+    <button id="borders-toggle" class="layer" type="button" aria-expanded="true">Borders</button>
   </aside>
   <div id="ndvi-panel" class="dock" hidden>
     <div class="transport">
@@ -292,6 +304,18 @@
       </div>
       <input id="scrub" type="range" min="0" value="0" aria-label="NDVI month" />
     </div>
+  </div>
+  <div id="co2-panel" class="dock" hidden>
+    <div class="transport"><button id="co2-play" type="button">Play</button></div>
+    <div class="timeline">
+      <div class="ends">
+        <span>Jan 2010</span><span id="co2-count"></span><span id="co2-date"></span><span>Feb 2017</span>
+      </div>
+      <input id="co2-scrub" type="range" min="0" value="0" aria-label="CO2 month" />
+    </div>
+  </div>
+  <div id="flat-panel" class="flat" hidden>
+    <iframe id="flat-frame" title="Flat map" loading="lazy"></iframe>
   </div>
   <p class="status" id="status" role="status"></p>
 
@@ -326,10 +350,8 @@
     const ndviPanel = document.getElementById("ndvi-panel");
     const key = document.getElementById("key");
     const corner = document.getElementById("corner");
-
     const surfacePressureToggle = document.getElementById("surface-pressure-toggle");
     const pressureLine = document.getElementById("pressure-line");
-
     const pressureKey = document.getElementById("pressure-key");
     const metaEl = document.getElementById("meta");
 
@@ -338,7 +360,23 @@
       menuBtn.setAttribute("aria-expanded", String(open));
       sidebar.setAttribute("aria-hidden", String(!open));
       document.body.classList.toggle("sidebar-open", open);
+      placeCorner();
     });
+
+    // keep the info card below the menu so it never hides the date
+    function placeCorner() {
+      if (!sidebar.classList.contains("open")) {
+        corner.style.top = "";
+        corner.style.maxHeight = "";
+        corner.style.overflowY = "";
+        return;
+      }
+      const top = Math.round(sidebar.getBoundingClientRect().bottom + 12);
+      corner.style.top = top + "px";
+      corner.style.maxHeight = `calc(100vh - ${top + 90}px)`;
+      corner.style.overflowY = "auto";
+    }
+    window.addEventListener("resize", placeCorner);
 
     let ndviSelected = false;
     let surfacePressureSelected = false;
@@ -349,20 +387,14 @@
       syncNdviLayer();
     });
 
-    
     surfacePressureToggle.addEventListener("click", () => {
       surfacePressureSelected = !surfacePressureSelected;
       surfacePressureToggle.setAttribute("aria-expanded", String(surfacePressureSelected));
-
       surfacePressure2.visible = surfacePressureSelected && !!pressureMat.uniforms.uMap.value;
       updatePanels();
-
       if (surfacePressureSelected) showPressure();
       if (!surfacePressureSelected) pressureLine.textContent = "";
     });
-    
-
-
 
     scrub.max = String(frames.length - 1);
     const startIndex = frames.findIndex((f) => f.year === 2026 && f.month === 7);
@@ -420,25 +452,13 @@
     globe.add(earth);
 
     function makeNdviMaterial() {
-      return new THREE.MeshLambertMaterial({
-        transparent: true,
-        opacity: 0,
-        depthWrite: false,
-      });
-    }
-
-    function makeSurfacePressureMaterial() {
-      return new THREE.MeshLambertMaterial({
-        transparent: true,
-        opacity: 0,
-        depthWrite: false,
-      });
+      return new THREE.MeshLambertMaterial({ transparent: true, opacity: 0, depthWrite: false });
     }
 
     const pressureMat = new THREE.ShaderMaterial({
       uniforms: {
         uMap:     { value: null },
-        uScale:   { value: 0.0 },     
+        uScale:   { value: 0.0 },
         uOpacity: { value: 0.7 },
       },
       vertexShader: `
@@ -447,7 +467,7 @@
         varying vec4 vColor;
         varying vec3 vPos;
 
-        float pressureFromColor(vec3 lin) { // get rgb. convert to a pressure value 
+        float pressureFromColor(vec3 lin) {
           vec3 c = pow(lin, vec3(1.0 / 2.2)) * 255.0;
           float p;
           if (c.b > c.r || c.g >= c.r) {
@@ -458,11 +478,11 @@
           return clamp(p, 800.0, 1020.0);
         }
 
-        void main() { //for every vertex...
+        void main() {
           vColor = texture2D(uMap, uv);
           float h = 0.0;
-          if (vColor.a > 0.15) h = (1020.0 - pressureFromColor(vColor.rgb)) / 220.0; //turn pressure into height 
-          vec3 pos = position + normal * h * uScale; //extrude along normal 
+          if (vColor.a > 0.15) h = (1020.0 - pressureFromColor(vColor.rgb)) / 220.0;
+          vec3 pos = position + normal * h * uScale;
           vec4 mv = modelViewMatrix * vec4(pos, 1.0);
           vPos = mv.xyz;
           gl_Position = projectionMatrix * mv;
@@ -482,40 +502,20 @@
       depthWrite: false,
     });
 
-
-
     const ndviA = new THREE.Mesh(new THREE.SphereGeometry(1.004, 96, 96), makeNdviMaterial());
     const ndviB = new THREE.Mesh(new THREE.SphereGeometry(1.008, 96, 96), makeNdviMaterial());
-    //const surfacePressure = new THREE.Mesh(new THREE.SphereGeometry(1.004, 96, 96), makeSurfacePressureMaterial());
+    const surfacePressure2 = new THREE.Mesh(new THREE.SphereGeometry(1.002, 256, 128), pressureMat);
 
-    const surfacePressure2 = new THREE.Mesh(
-      new THREE.SphereGeometry(1.002, 256, 128),   
-      pressureMat
-    );
-
-    
-    //surfacePressure.visible = false;
-    //surfacePressure.renderOrder = 2;
-   
     ndviA.renderOrder = 2;
     ndviB.renderOrder = 2;
-
     ndviA.visible = false;
     ndviB.visible = false;
-   
-
     surfacePressure2.renderOrder = 1;
-    surfacePressure2.visible = false;     
+    surfacePressure2.visible = false;
 
     globe.add(ndviA, ndviB, surfacePressure2);
-    //globe.add(ndviA, ndviB, surfacePressure);
 
-
-  
-
-
-    /* bloom, magenta stuff. calc*/
-    const bloomMat = new THREE.ShaderMaterial({ 
+    const bloomMat = new THREE.ShaderMaterial({
       uniforms: {
         mapNow: { value: null },
         mapPrev: { value: null },
@@ -551,7 +551,6 @@
     bloom.visible = false;
     globe.add(bloom);
 
-
     function directionFromLatLon(lat, lon) {
       const phi = ((lon + 180) / 360) * Math.PI * 2;
       const theta = ((90 - lat) / 180) * Math.PI;
@@ -566,16 +565,12 @@
     function flyTo(lat, lon, dist) {
       flyTarget = directionFromLatLon(lat, lon).multiplyScalar(dist);
     }
-    controls.addEventListener("start", () => {
-      flyTarget = null;
-    });
+    controls.addEventListener("start", () => { flyTarget = null; });
 
     flyTo(12, -28, 2.7);
 
     const loader = new THREE.TextureLoader();
     loader.setCrossOrigin("anonymous");
-
-
 
     function loadTexture(url) {
       return new Promise((resolve, reject) => {
@@ -608,7 +603,6 @@
       return `https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?${params.toString()}`;
     }
 
-
     function surfacePressureUrl(frame) {
       const mm = String(frame.month).padStart(2, "0");
       const dd = String(frame.day).padStart(2, "0");
@@ -627,8 +621,6 @@
       });
       return `https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?${params.toString()}`;
     }
-
-
 
     function frameKey(frame) {
       return `${frame.year}-${frame.month}-${frame.day}`;
@@ -669,26 +661,16 @@
       };
     }
 
-     const pending = new Map();
+    const pending = new Map();
     function loadFrame(frame) {
-      
       const key = `ndvi:${frameKey(frame)}`;
-      //const key = frameKey(frame);
-      
       if (cache.has(key)) {
         const hit = cache.get(key);
         cache.delete(key);
         cache.set(key, hit);
         return Promise.resolve(hit);
       }
-
-    
       const url = ndviUrl(frame);
-
-      
-
-      console.log("requesting", key, url);
-
       if (pending.has(key)) return pending.get(key);
       const job = loadTexture(url)
         .then((texture) => {
@@ -707,11 +689,11 @@
 
     const pressureCache = new Map();
     function loadPressure(frame) {
-      const f = { ...frame, day: 1 };                 
+      const f = { ...frame, day: 1 };
       const k = frameKey(f);
       if (!pressureCache.has(k)) {
         pressureCache.set(k, loadTexture(surfacePressureUrl(f)).catch((e) => {
-          pressureCache.delete(k);                     
+          pressureCache.delete(k);
           throw e;
         }));
       }
@@ -725,18 +707,15 @@
       const my = ++pressureRequest;
       try {
         const tex = await loadPressure(frames[index]);
-        if (my !== pressureRequest || !surfacePressureSelected) return;  //toggled
-        pressureMat.uniforms.uMap.value = tex; //make bumpy
+        if (my !== pressureRequest || !surfacePressureSelected) return;
+        pressureMat.uniforms.uMap.value = tex;
         surfacePressure2.visible = true;
         if (!tex.userData.sampler) tex.userData.sampler = makeSampler(tex.image);
-          currentPressureTex = tex;    
-        
+        currentPressureTex = tex;
       } catch (e) {
         console.error("pressure failed to load", e);
       }
     }
-
-
 
     let shown = ndviA;
     let hidden = ndviB;
@@ -750,17 +729,16 @@
     let fade = null;
 
     function syncNdviLayer() {
-
       bloomBtn.hidden = !ndviSelected;
       extrudeBtn.hidden = !surfacePressureSelected;
 
       updatePanels();
       ndviA.visible = ndviSelected;
       ndviB.visible = ndviSelected;
-      
+
       if (!ndviSelected) {
         bloom.visible = false;
-        klassEl.textContent = "Surface Pressure";      
+        klassEl.textContent = "Surface Pressure";
         coordEl.textContent = "";
         setStatus("");
       } else {
@@ -771,16 +749,24 @@
     }
 
     function updatePanels() {
-      const any = ndviSelected || surfacePressureSelected;
-      corner.hidden = !any;
-      ndviPanel.hidden = !any;
+      const dock1 = ndviSelected || surfacePressureSelected;
+      corner.hidden = !(dock1 || co2Selected);
+      ndviPanel.hidden = !dock1;
+      co2Panel.hidden = !co2Selected;
+      co2Panel.classList.toggle("stacked", dock1);
       key.hidden = !ndviSelected;
       pressureKey.hidden = !surfacePressureSelected;
+      co2Key.hidden = !co2Selected;
+      klassEl.hidden = !dock1;
+      coordEl.hidden = !ndviSelected;
+      pressureLine.hidden = !surfacePressureSelected;
+      co2Line.hidden = !co2Selected;
       extrudeBtn.hidden = !surfacePressureSelected;
 
       const parts = [];
       if (ndviSelected) parts.push("MODIS Terra, 8-day NDVI");
       if (surfacePressureSelected) parts.push("MERRA-2 monthly surface pressure");
+      if (co2Selected) parts.push("AIRS/Aqua monthly CO₂");
       metaEl.textContent = parts.join(" · ");
     }
 
@@ -791,9 +777,6 @@
       const ew = lon >= 0 ? "E" : "W";
       return `${Math.abs(lat).toFixed(1)}°${ns}   ${Math.abs(lon).toFixed(1)}°${ew}`;
     }
-
-
-
 
     function setStatus(text) {
       if (!ndviSelected || !text) {
@@ -814,8 +797,6 @@
       bloomMat.uniforms.mapPrev.value = previousEntry.texture;
       bloomMat.uniforms.strength.value = 1;
     }
-
-    
 
     function renderDate() {
       const frame = frames[index];
@@ -838,7 +819,6 @@
         if (my !== requestId) return;
         liveKeys = new Set([frameKey(frame), frameKey(prevFrame)]);
         currentEntry = now;
-        
         previousEntry = prev;
         hidden.material.map = now.texture;
         hidden.material.needsUpdate = true;
@@ -875,10 +855,7 @@
       }
     }
 
-    
-    /*ndvi classify green*/
-    function classify(pixel, prevPixel) { 
-
+    function classify(pixel, prevPixel) {
       const [r, g, b, a] = pixel;
       if (a < 40) {
         return { name: "Open water", note: "No NDVI for this point." };
@@ -904,19 +881,12 @@
       return { name, note };
     }
 
-
-
-    function classifyPressure(pixel, prevPixel) { 
-
-      //take in pixel color, classify to pressure buckets based on rgb values. spits out range as name and note (bucket name))
-
-      const [r, g, b, a] = pixel;
+    function classifyPressure(pixel) {
+      const [r, g, b] = pixel;
       let name = "high pressure";
-      let note = "ahaaaa";
+      let note = "";
 
-      //5 buckets: super blue, green, yellow, orange, red. real names: very low, low, moderate, high, very high 
-
-      if (b > r) { //very blue, probably lower pressure 
+      if (b > r) {
         name = " <845 hPa";
         note = "Very Low Pressure";
       } else if (r < g) {
@@ -924,7 +894,7 @@
           name = "~845 to 890 hPa";
           note = "Low Pressure";
         } else {
-          name = "~890 to 930 hPa"; 
+          name = "~890 to 930 hPa";
           note = "Moderate Pressure";
         }
       } else {
@@ -939,11 +909,8 @@
           note = "Very High Pressure";
         }
       }
-
       return { name, note };
     }
-
-
 
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
@@ -955,30 +922,40 @@
       pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
       pointerInside = true;
       raycaster.setFromCamera(pointer, camera);
-       if (ndviSelected && currentEntry) {
-          const hit = raycaster.intersectObject(shown, false)[0];
-          if (hit && hit.uv) {
-            const sample = currentEntry.sampler(hit.uv.x, hit.uv.y);
-            const prevSample = previousEntry ? previousEntry.sampler(hit.uv.x, hit.uv.y) : null;
-            const reading = classify(sample, prevSample);        // classify again, not classifyPressure
-            klassEl.textContent = reading.name;
-            coordEl.textContent = `${coordText(hit.uv)}   ${reading.note}`;
-          }
+      if (ndviSelected && currentEntry) {
+        const hit = raycaster.intersectObject(shown, false)[0];
+        if (hit && hit.uv) {
+          const sample = currentEntry.sampler(hit.uv.x, hit.uv.y);
+          const prevSample = previousEntry ? previousEntry.sampler(hit.uv.x, hit.uv.y) : null;
+          const reading = classify(sample, prevSample);
+          klassEl.textContent = reading.name;
+          coordEl.textContent = `${coordText(hit.uv)}   ${reading.note}`;
         }
+      }
 
-        if (surfacePressureSelected && currentPressureTex) {
-          const hit = raycaster.intersectObject(earth, false)[0];   // flat sphere
-          if (hit && hit.uv) {
-            const px = currentPressureTex.userData.sampler(hit.uv.x, hit.uv.y);
-            const reading = px[3] < 40 ? { name: "No data", note: "" } : classifyPressure(px);
-            pressureLine.textContent = `${coordText(hit.uv)}   ${reading.name}  ${reading.note}`;          }
+      if (surfacePressureSelected && currentPressureTex) {
+        const hit = raycaster.intersectObject(earth, false)[0];
+        if (hit && hit.uv) {
+          const px = currentPressureTex.userData.sampler(hit.uv.x, hit.uv.y);
+          const reading = px[3] < 40 ? { name: "No data", note: "" } : classifyPressure(px);
+          pressureLine.textContent = `${coordText(hit.uv)}   ${reading.name}  ${reading.note}`;
         }
+      }
+
+      if (co2Selected && co2Tex) {
+        const hit = raycaster.intersectObject(earth, false)[0];
+        if (hit && hit.uv) {
+          const g = co2Tex.userData.grid;
+          const col = Math.min(g.W - 1, Math.floor(hit.uv.x * g.W));
+          const row = Math.min(g.H - 1, Math.floor((1 - hit.uv.y) * g.H));
+          const k = row * g.W + col;
+          co2Line.textContent = `${coordText(hit.uv)}   ${g.sa[k] < 0.5 ? "No data" : "~" + g.sv[k].toFixed(1) + " ppm"}`;
+        }
+      }
     }
 
     renderer.domElement.addEventListener("pointermove", readPointer);
-    renderer.domElement.addEventListener("pointerleave", () => {
-      pointerInside = false;
-    });
+    renderer.domElement.addEventListener("pointerleave", () => { pointerInside = false; });
 
     playBtn.addEventListener("click", () => {
       playing = !playing;
@@ -1037,6 +1014,303 @@
       if (playing) setTimeout(stepPlay, 1050);
     }
 
+    /* ---------- CO2 layer (NASA AIRS/Aqua via GIBS) ---------- */
+    const co2Toggle = document.getElementById("co2-toggle");
+    const co2Panel = document.getElementById("co2-panel");
+    const co2Key = document.getElementById("co2-key");
+    const co2Line = document.getElementById("co2-line");
+    const co2Scrub = document.getElementById("co2-scrub");
+    const co2Play = document.getElementById("co2-play");
+    const co2DateEl = document.getElementById("co2-date");
+    const co2Count = document.getElementById("co2-count");
+
+    const CO2_STOPS = [[388,227,247,250],[390,205,226,229],[391.02,198,219,218],[392.04,190,212,204],[393,185,205,192],[394.02,186,204,180],[395.04,209,214,173],[396,234,225,166],[397.02,239,221,150],[398.04,239,207,123],[399,236,188,101],[400.02,235,167,87],[401.04,236,142,75],[402,233,117,64],[403.02,221,88,51],[404.04,199,55,36],[405,183,34,28],[408,142,22,13]];
+
+    function co2Ramp(v) {
+      const S = CO2_STOPS;
+      if (v <= S[0][0]) return [S[0][1], S[0][2], S[0][3]];
+      for (let i = 1; i < S.length; i++) {
+        if (v <= S[i][0]) {
+          const p = S[i - 1], q = S[i], t = (v - p[0]) / (q[0] - p[0]);
+          return [p[1] + (q[1] - p[1]) * t, p[2] + (q[2] - p[2]) * t, p[3] + (q[3] - p[3]) * t];
+        }
+      }
+      const L = S[S.length - 1];
+      return [L[1], L[2], L[3]];
+    }
+
+    // colour -> ppm: nearest point on the NASA palette polyline
+    function co2Decode(r, g, b) {
+      const S = CO2_STOPS;
+      let bestD = Infinity, bestV = 390;
+      for (let i = 1; i < S.length; i++) {
+        const p = S[i - 1], q = S[i];
+        const dx = q[1] - p[1], dy = q[2] - p[2], dz = q[3] - p[3];
+        const len = dx * dx + dy * dy + dz * dz || 1;
+        let t = ((r - p[1]) * dx + (g - p[2]) * dy + (b - p[3]) * dz) / len;
+        t = Math.max(0, Math.min(1, t));
+        const ex = p[1] + dx * t - r, ey = p[2] + dy * t - g, ez = p[3] + dz * t - b;
+        const d = ex * ex + ey * ey + ez * ez;
+        if (d < bestD) { bestD = d; bestV = p[0] + (q[0] - p[0]) * t; }
+      }
+      return bestV;
+    }
+
+    // decode NASA tile -> ppm grid, smooth (gap-aware), re-render with a continuous ramp
+    function buildCo2(image) {
+      const W = image.width, H = image.height;
+      const c = document.createElement("canvas");
+      c.width = W; c.height = H;
+      const cx = c.getContext("2d", { willReadFrequently: true });
+      cx.drawImage(image, 0, 0);
+      const d = cx.getImageData(0, 0, W, H).data;
+      const val = new Float32Array(W * H), ok = new Uint8Array(W * H);
+      for (let i = 0; i < W * H; i++) {
+        if (d[i * 4 + 3] > 40) { val[i] = co2Decode(d[i * 4], d[i * 4 + 1], d[i * 4 + 2]); ok[i] = 1; }
+      }
+      const RX = 3, RY = 4, SX = 1.6, SY = 2.0;
+      let full = 0;
+      for (let dy = -RY; dy <= RY; dy++) for (let dx = -RX; dx <= RX; dx++) {
+        full += Math.exp(-(dx * dx) / (2 * SX * SX) - (dy * dy) / (2 * SY * SY));
+      }
+      const sv = new Float32Array(W * H), sa = new Float32Array(W * H);
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        let s = 0, ws = 0;
+        for (let dy = -RY; dy <= RY; dy++) {
+          const yy = y + dy;
+          if (yy < 0 || yy >= H) continue;
+          for (let dx = -RX; dx <= RX; dx++) {
+            const k = yy * W + ((x + dx + W) % W);
+            if (!ok[k]) continue;
+            const w = Math.exp(-(dx * dx) / (2 * SX * SX) - (dy * dy) / (2 * SY * SY));
+            s += w * val[k]; ws += w;
+          }
+        }
+        const i = y * W + x, f = ws / full;
+        sa[i] = f < 0.15 ? 0 : Math.min(1, (f - 0.15) / 0.25);
+        sv[i] = ws > 0 ? s / ws : 0;
+      }
+      const OW = 720, OH = 360;
+      const out = document.createElement("canvas");
+      out.width = OW; out.height = OH;
+      const oc = out.getContext("2d");
+      const img = oc.createImageData(OW, OH);
+      const at = (x, y) => {
+        y = Math.max(0, Math.min(H - 1, y));
+        x = ((x % W) + W) % W;
+        return y * W + x;
+      };
+      for (let oy = 0; oy < OH; oy++) {
+        const gy = ((oy + 0.5) / OH) * H - 0.5, y0 = Math.floor(gy), fy = gy - y0;
+        for (let ox = 0; ox < OW; ox++) {
+          const gx = ((ox + 0.5) / OW) * W - 0.5, x0 = Math.floor(gx), fx = gx - x0;
+          let num = 0, den = 0;
+          const corners = [[x0, y0, (1 - fx) * (1 - fy)], [x0 + 1, y0, fx * (1 - fy)], [x0, y0 + 1, (1 - fx) * fy], [x0 + 1, y0 + 1, fx * fy]];
+          for (const [cxn, cyn, w] of corners) {
+            const k = at(cxn, cyn), wa = w * sa[k];
+            num += wa * sv[k]; den += wa;
+          }
+          const o = (oy * OW + ox) * 4;
+          if (den < 0.01) { img.data[o + 3] = 0; continue; }
+          const rgb = co2Ramp(num / den);
+          img.data[o] = rgb[0]; img.data[o + 1] = rgb[1]; img.data[o + 2] = rgb[2];
+          img.data[o + 3] = Math.min(1, den) * 255;
+        }
+      }
+      oc.putImageData(img, 0, 0);
+      return { canvas: out, sv, sa, W, H };
+    }
+
+    const co2Frames = [];
+    for (let y = 2010; y <= 2017; y++) {
+      for (let m = 1; m <= 12; m++) {
+        if (y === 2017 && m > 2) continue;
+        co2Frames.push({ year: y, month: m, day: 1 });
+      }
+    }
+    co2Scrub.max = String(co2Frames.length - 1);
+
+    function co2Url(f) {
+      const params = new URLSearchParams({
+        SERVICE: "WMS", VERSION: "1.1.1", REQUEST: "GetMap",
+        LAYERS: "AIRS_L3_Carbon_Dioxide_IR_Monthly",
+        FORMAT: "image/png", TRANSPARENT: "TRUE", SRS: "EPSG:4326",
+        BBOX: "-180,-90,180,90", WIDTH: "144", HEIGHT: "90",
+        TIME: `${f.year}-${String(f.month).padStart(2, "0")}-01`,
+      });
+      return `https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?${params}`;
+    }
+
+    const co2Mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.82, depthWrite: false });
+    const co2Mesh = new THREE.Mesh(new THREE.SphereGeometry(1.003, 96, 96), co2Mat);
+    co2Mesh.renderOrder = 1;
+    co2Mesh.visible = false;
+    globe.add(co2Mesh);
+
+    let co2Selected = false, co2Playing = false, co2Req = 0, co2Tex = null;
+    let co2Index = co2Frames.findIndex((f) => f.year === 2014 && f.month === 7);
+
+    const co2Cache = new Map();
+    function loadCo2(f) {
+      const k = frameKey(f);
+      if (!co2Cache.has(k)) {
+        co2Cache.set(k, loadTexture(co2Url(f)).then((src) => {
+          const g = buildCo2(src.image);
+          src.dispose();
+          const tex = new THREE.CanvasTexture(g.canvas);
+          tex.colorSpace = THREE.SRGBColorSpace;
+          tex.anisotropy = 4;
+          tex.userData.grid = g;
+          return tex;
+        }).catch((e) => { co2Cache.delete(k); throw e; }));
+      }
+      return co2Cache.get(k);
+    }
+    function trimCo2(keep) {
+      for (const k of [...co2Cache.keys()]) {
+        if (co2Cache.size <= 6) break;
+        if (k === keep) continue;
+        co2Cache.get(k).then((t) => t.dispose()).catch(() => {});
+        co2Cache.delete(k);
+      }
+    }
+    function co2Status(text) {
+      statusEl.textContent = text;
+      statusEl.classList.toggle("show", !!text);
+    }
+
+    async function showCo2(i) {
+      const my = ++co2Req;
+      co2Index = i;
+      co2Scrub.value = String(i);
+      const f = co2Frames[i];
+      co2DateEl.textContent = `${MONTHS[f.month - 1]} ${f.year}`;
+      co2Count.textContent = `${i + 1} / ${co2Frames.length}`;
+      if (!ndviSelected && !surfacePressureSelected) dateLine.textContent = `${MONTHS[f.month - 1]} ${f.year}`;
+      if (!co2Selected) return;
+      co2Status(`Loading ${MONTHS[f.month - 1]} ${f.year}`);
+      try {
+        const tex = await loadCo2(f);
+        if (my !== co2Req) return;
+        co2Mat.map = tex;
+        co2Mat.needsUpdate = true;
+        co2Tex = tex;
+        co2Mesh.visible = co2Selected;
+        co2Status("");
+        trimCo2(frameKey(f));
+      } catch (e) {
+        if (my === co2Req) co2Status("This CO₂ month did not load.");
+        console.error(e);
+      }
+    }
+
+    co2Toggle.addEventListener("click", () => {
+      co2Selected = !co2Selected;
+      co2Toggle.setAttribute("aria-expanded", String(co2Selected));
+      updatePanels();
+      if (co2Selected) {
+        showCo2(co2Index);
+      } else {
+        co2Mesh.visible = false;
+        co2Playing = false;
+        co2Play.textContent = "Play";
+        co2Line.textContent = "";
+        co2Status("");
+      }
+    });
+
+    co2Play.addEventListener("click", () => {
+      co2Playing = !co2Playing;
+      co2Play.textContent = co2Playing ? "Pause" : "Play";
+      if (co2Playing) stepCo2();
+    });
+    async function stepCo2() {
+      if (!co2Playing || !co2Selected) return;
+      await showCo2((co2Index + 1) % co2Frames.length);
+      if (co2Playing) setTimeout(stepCo2, 900);
+    }
+    co2Scrub.addEventListener("input", () => {
+      co2Playing = false;
+      co2Play.textContent = "Play";
+      showCo2(Number(co2Scrub.value));
+    });
+
+    /* ---------- country borders (Natural Earth via world-atlas) ---------- */
+    const bordersToggle = document.getElementById("borders-toggle");
+    const bordersMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(1.02, 96, 96),
+      new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false })
+    );
+    bordersMesh.renderOrder = 5;
+    bordersMesh.visible = false;
+    globe.add(bordersMesh);
+    let bordersReady = false, bordersOn = true;
+    bordersToggle.addEventListener("click", () => {
+      bordersOn = !bordersOn;
+      bordersToggle.setAttribute("aria-expanded", String(bordersOn));
+      bordersMesh.visible = bordersOn && bordersReady;
+    });
+    (async () => {
+      try {
+        const [topojson, world] = await Promise.all([
+          import("https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/+esm"),
+          fetch("https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-110m.json").then((r) => r.json()),
+        ]);
+        const mesh = topojson.mesh(world, world.objects.countries);
+        const W = 4096, H = 2048;
+        const c = document.createElement("canvas");
+        c.width = W; c.height = H;
+        const g = c.getContext("2d");
+        g.strokeStyle = "rgba(255,255,255,0.8)";
+        g.lineWidth = 1.6;
+        g.lineJoin = "round";
+        g.beginPath();
+        for (const line of mesh.coordinates) {
+          for (let i = 1; i < line.length; i++) {
+            const [x0, y0] = line[i - 1], [x1, y1] = line[i];
+            if (Math.abs(x1 - x0) > 180) continue;
+            if (Math.abs(x0) >= 179.99 && Math.abs(x1) >= 179.99) continue;
+            if (y0 <= -89.9 && y1 <= -89.9) continue;
+            g.moveTo(((x0 + 180) / 360) * W, ((90 - y0) / 180) * H);
+            g.lineTo(((x1 + 180) / 360) * W, ((90 - y1) / 180) * H);
+          }
+        }
+        g.stroke();
+        const tex = new THREE.CanvasTexture(c);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = 8;
+        bordersMesh.material.map = tex;
+        bordersMesh.material.needsUpdate = true;
+        bordersReady = true;
+        bordersMesh.visible = bordersOn;
+      } catch (e) {
+        console.error("borders failed to load", e);
+      }
+    })();
+
+    /* ---------- flat maps (served by Flask, shown as-is in an iframe) ---------- */
+    const FLAT_MAPS = {
+      soil: { toggle: document.getElementById("soil-toggle"), url: "https://nasa2026-sl-sm-resource.onrender.com/get_soil_moisture" },
+      sea:  { toggle: document.getElementById("sea-toggle"),  url: "https://nasa2026-sl-sm-resource.onrender.com/sl_plot.html" },
+    };
+    const flatPanel = document.getElementById("flat-panel");
+    const flatFrame = document.getElementById("flat-frame");
+    let flatActive = null;
+    function showFlat(id) {
+      flatActive = id;
+      for (const [k, m] of Object.entries(FLAT_MAPS)) m.toggle.setAttribute("aria-expanded", String(k === id));
+      flatPanel.hidden = !id;
+      document.body.classList.toggle("flat-open", !!id);
+      if (id && flatFrame.dataset.src !== FLAT_MAPS[id].url) {
+        flatFrame.dataset.src = FLAT_MAPS[id].url;
+        flatFrame.src = FLAT_MAPS[id].url;
+      }
+    }
+    for (const [k, m] of Object.entries(FLAT_MAPS)) {
+      m.toggle.addEventListener("click", () => showFlat(flatActive === k ? null : k));
+    }
+
+    /* ---------- render loop ---------- */
     const clock = new THREE.Clock();
 
     function animate() {
@@ -1088,4 +1362,3 @@
   </script>
 </body>
 </html>
-
